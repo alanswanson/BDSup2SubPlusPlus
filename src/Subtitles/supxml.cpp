@@ -27,8 +27,7 @@
 #include "types.h"
 #include <QImage>
 #include <QFileInfo>
-#include <QtXml/QXmlSimpleReader>
-#include <QtXml/QXmlInputSource>
+#include <QXmlStreamReader>
 #include <QRect>
 #include <QDir>
 #include <QPainter>
@@ -65,8 +64,8 @@ QImage SupXML::image(Bitmap &bitmap)
 
 void SupXML::decode(int index)
 {
-    QVector<Bitmap> bitmaps;
-    QVector<Palette> palettes;
+    QList<Bitmap> bitmaps;
+    QList<Palette> palettes;
     SubPictureXML &subPic = subPictures[index];
     for (int i = 0; i < subPic.fileNames().size(); ++i)
     {
@@ -84,7 +83,7 @@ void SupXML::decode(int index)
         // first try to read image and palette directly from imported image
         if (image.format() == QImage::Format_Indexed8)
         {
-            QVector<QRgb> colorTable = image.colorTable();
+            QList<QRgb> colorTable = image.colorTable();
             if (colorTable.size() <= 255 || (image.hasAlphaChannel() && qAlpha(colorTable[255]) == 0))
             {
                 // create palette
@@ -111,7 +110,7 @@ void SupXML::decode(int index)
             // quantize image
             QuantizeFilter qf;
             bitmap = Bitmap(image.width(), image.height());
-            QVector<QRgb> ct = qf.quantize(image, &bitmap.image(), width, height, 255, false, false);
+            QList<QRgb> ct = qf.quantize(image, &bitmap.image(), width, height, 255, false, false);
             int size = ct.size();
             if (size > 255)
             {
@@ -252,15 +251,12 @@ SubPicture *SupXML::subPicture(int index)
 
 void SupXML::readAllImages()
 {
-    QXmlSimpleReader xmlReader;
-    QXmlInputSource *source = new QXmlInputSource(xmlFile.data());
+    QXmlStreamReader reader(xmlFile.data());
 
-    XmlHandler *handler = new XmlHandler(this);
-    xmlReader.setContentHandler(handler);
-    xmlReader.setErrorHandler(handler);
-
-    if (!xmlReader.parse(source))
-    {
+    while (!reader.atEnd()) {
+        reader.readNext();
+    }
+    if (reader.hasError()) {
         throw QString("Failed to parse file: '%1'").arg(xmlFileName);
     }
 
@@ -273,7 +269,7 @@ QString SupXML::getPNGname(QString filename, int idx)
     return QString("%1/%2_%3.png").arg(info.absolutePath()).arg(info.completeBaseName()).arg(QString::number(idx), 4, QChar('0'));
 }
 
-void SupXML::writeXml(QString filename, QVector<SubPicture*> pics)
+void SupXML::writeXml(QString filename, QList<SubPicture*> pics)
 {
     double fps = subtitleProcessor->getFPSTrg();
     double fpsXml = XmlFps(fps);
@@ -393,7 +389,7 @@ bool SupXML::XmlHandler::endElement(const QString &/*namespaceURI*/, const QStri
 }
 
 bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QString &/*localName*/,
-                                      const QString &qName, const QXmlAttributes &atts)
+                                      const QString &qName, const QXmlStreamAttributes &atts)
 {
     state = findState(qName.toLower());
     QString at;
@@ -424,7 +420,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
     } break;
     case (int)SupXML::XmlHandler::XmlState::NAME:
     {
-        at = atts.value("Title");
+        at = atts.value("Title").toString();
         if (!at.isEmpty())
         {
             parent->title = at;
@@ -433,7 +429,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
     } break;
     case (int)SupXML::XmlHandler::XmlState::LANGUAGE:
     {
-        at = atts.value("Code");
+        at = atts.value("Code").toString();
         if (!at.isEmpty())
         {
             parent->language = at;
@@ -442,14 +438,14 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
     } break;
     case (int)SupXML::XmlHandler::XmlState::FORMAT:
     {
-        at = atts.value("FrameRate");
+        at = atts.value("FrameRate").toString();
         if (!at.isEmpty())
         {
             parent->fps = parent->subtitleProcessor->getFPS(at);
             parent->fpsXml = parent->XmlFps(parent->fps);
             parent->subtitleProcessor->print(QString("fps: %1\n").arg(QString::number(parent->fps, 'g', 6)));
         }
-        at = atts.value("VideoFormat");
+        at = atts.value("VideoFormat").toString();
         if (!at.isEmpty())
         {
             QString res = QString(at);
@@ -463,7 +459,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
     } break;
     case (int)SupXML::XmlHandler::XmlState::EVENTS:
     {
-        at = atts.value("NumberofEvents");
+        at = atts.value("NumberofEvents").toString();
         if (!at.isEmpty())
         {
             bool ok;
@@ -489,8 +485,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
         parent->subtitleProcessor->printX(QString("#%1\n").arg(QString::number(num)));
 
         emit parent->currentProgressChanged(num);
-        at = atts.value("InTC");
-
+        at = atts.value("InTC").toString();
         if (!at.isEmpty())
         {
             subPicture->setStartTime(TimeUtil::timeStrXmlToPTS(at, parent->fpsXml));
@@ -500,7 +495,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
                 parent->subtitleProcessor->printWarning(QString("Invalid start time %1\n").arg(at));
             }
         }
-        at = atts.value("OutTC");
+        at = atts.value("OutTC").toString();
         if (!at.isEmpty())
         {
             subPicture->setEndTime(TimeUtil::timeStrXmlToPTS(at, parent->fpsXml));
@@ -515,7 +510,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
             subPicture->setStartTime(((subPicture->startTime() * 1001) + 500) / 1000);
             subPicture->setEndTime(((subPicture->endTime() * 1001) + 500) / 1000);
         }
-        at = atts.value("Forced");
+        at = atts.value("Forced").toString();
         if (!at.isEmpty())
         {
             subPicture->setForced(at.toLower() == "true");
@@ -528,7 +523,7 @@ bool SupXML::XmlHandler::startElement(const QString &/*namespaceURI*/, const QSt
         {
             parent->_numForcedFrames++;
         }
-        QVector<int> dim = parent->subtitleProcessor->getResolutions(parent->resolution);
+        QList<int> dim = parent->subtitleProcessor->getResolutions(parent->resolution);
         subPicture->setScreenWidth(dim.at(0));
         subPicture->setScreenHeight(dim.at(1));
     } break;

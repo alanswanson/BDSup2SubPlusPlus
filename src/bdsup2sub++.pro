@@ -10,16 +10,11 @@ QT_VERSION = $$split(QT_VERSION, ".")
 QT_VER_MAJ = $$member(QT_VERSION, 0)
 
 QT        += core xml
-lessThan(QT_VER_MAJ, 4) {
-QT        += gui
-}
-greaterThan(QT_VER_MAJ, 4) {
 QT        -= gui
 QT        += widgets
-}
+
 CONFIG    += qt console
 DEFINES   += BUILD_QXT_CORE
-QMAKE_CXXFLAGS += -std=c++14
 TARGET     = bdsup2sub++
 TEMPLATE   = app
 
